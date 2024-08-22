@@ -433,10 +433,6 @@ type loggingT struct {
 	// for better parallelization.
 	freeListMu sync.Mutex
 
-	// Optional prefix to include after standard header.  This is protected by freeListMu
-	// so that we can access it without an extra mutex lock/release
-	prefix *string
-
 	// mu protects the remaining elements of this structure and is
 	// used to synchronize logging.
 	mu sync.Mutex
@@ -457,7 +453,6 @@ type loggingT struct {
 	// safely using atomic.LoadInt32.
 	vmodule   moduleSpec // The state of the -vmodule flag.
 	verbosity Level      // V logging level, the value of the -v flag/
-
 }
 
 // buffer holds a byte Buffer for reuse. The zero value is ready for use.
@@ -490,15 +485,12 @@ func (l *loggingT) setVState(verbosity Level, filter []modulePat, setFilter bool
 }
 
 // getBuffer returns a new, ready-to-use buffer.
-// It also returns a custom prefix to include in the log message, if configured.
-func (l *loggingT) getBuffer() (*buffer, *string) {
-	var prefix *string
+func (l *loggingT) getBuffer() *buffer {
 	l.freeListMu.Lock()
 	b := l.freeList
 	if b != nil {
 		l.freeList = b.next
 	}
-	prefix = l.prefix
 	l.freeListMu.Unlock()
 	if b == nil {
 		b = new(buffer)
@@ -506,7 +498,7 @@ func (l *loggingT) getBuffer() (*buffer, *string) {
 		b.next = nil
 		b.Reset()
 	}
-	return b, prefix
+	return b
 }
 
 // putBuffer returns a buffer to the free list.
@@ -554,15 +546,6 @@ func (l *loggingT) header(s severity, depth int) (*buffer, string, int) {
 	return l.formatHeader(s, file, line), file, line
 }
 
-func (l *loggingT) setLogPrefix(prefix string) {
-	if !strings.HasSuffix(prefix, " ") {
-		prefix = prefix + " "
-	}
-	l.freeListMu.Lock()
-	l.prefix = &prefix
-	l.freeListMu.Unlock()
-}
-
 // formatHeader formats a log header using the provided file name and line number.
 func (l *loggingT) formatHeader(s severity, file string, line int) *buffer {
 	now := timeNow()
@@ -572,7 +555,7 @@ func (l *loggingT) formatHeader(s severity, file string, line int) *buffer {
 	if s > fatalLog {
 		s = infoLog // for safety.
 	}
-	buf, prefix := l.getBuffer()
+	buf := l.getBuffer()
 
 	// Avoid Fprintf, for speed. The format is so simple that we can do it quickly by hand.
 	// It's worth about 3X. Fprintf is hard.
@@ -600,10 +583,6 @@ func (l *loggingT) formatHeader(s severity, file string, line int) *buffer {
 	buf.tmp[n+1] = ']'
 	buf.tmp[n+2] = ' '
 	buf.Write(buf.tmp[:n+3])
-
-	if prefix != nil {
-		buf.WriteString(*prefix)
-	}
 	return buf
 }
 
@@ -1198,10 +1177,4 @@ func Exitln(args ...interface{}) {
 func Exitf(format string, args ...interface{}) {
 	atomic.StoreUint32(&fatalNoStacks, 1)
 	logging.printf(fatalLog, format, args...)
-}
-
-// Set a prefix that will be included after the standard header but before
-// any message-specific text. For example, an AWS lambda thread ID.
-func SetLogPrefix(prefix string) {
-	logging.setLogPrefix(prefix)
 }
