@@ -230,6 +230,7 @@ func ctxlogf(ctx context.Context, depth int, severity logsink.Severity, verbose 
 		Severity: severity,
 		Verbose:  verbose,
 		Thread:   int64(pid),
+		Prefix:   logPrefix.Load().(*string),
 	}
 	sinkf(meta, format, args...)
 	// Clear pointer fields so they can be garbage collected early.
@@ -774,4 +775,19 @@ func ExitContextDepth(ctx context.Context, depth int, args ...any) {
 // context is used to pass the Trace Context to log sinks.
 func ExitContextDepthf(ctx context.Context, depth int, format string, args ...any) {
 	ctxexitf(ctx, depth+1, format, args...)
+}
+
+// Stores a *string. When non-nil, this string will be included after the
+// standard header but before any message-specific text.
+var logPrefix atomic.Value
+
+func init() {
+	// Establish invariant that logPrefix stores a *string.
+	logPrefix.Store((*string)(nil))
+}
+
+// Sets a prefix that will be included after the standard header but before
+// any message-specific text. For example, an AWS lambda thread ID.
+func SetLogPrefix(prefix string) {
+	logPrefix.Store(&prefix)
 }

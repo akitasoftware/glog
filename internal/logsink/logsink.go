@@ -110,6 +110,10 @@ type Meta struct {
 	// Even if WantStack returns false, this field may be set (e.g. if another
 	// sink wants a stack trace).
 	Stack *stackdump.Stack
+
+	// When non-nil, contains a prefix to be included after the standard header
+	// but before any message-specific text.
+	Prefix *string
 }
 
 // Structured is a logging destination that accepts structured data as input.
@@ -243,6 +247,13 @@ func textPrintf(m *Meta, textSinks []Text, format string, args ...any) (n int, e
 		buf.Write(strconv.AppendInt(tmp[:0], int64(m.Line), 10))
 	}
 	buf.WriteString("] ")
+
+	if m.Prefix != nil {
+		buf.WriteString(*m.Prefix)
+		if !strings.HasSuffix(*m.Prefix, " ") {
+			buf.WriteString(" ")
+		}
+	}
 
 	msgStart := buf.Len()
 	fmt.Fprintf(buf, format, args...)
